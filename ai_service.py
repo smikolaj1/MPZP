@@ -6,54 +6,101 @@ from dotenv import load_dotenv
 load_dotenv()
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-async def analizuj_mpzp_ai(surowy_tekst_urzedowy: str, cel_inwestycji: str = "dom jednorodzinny"):
-    tekst_str = str(surowy_tekst_urzedowy).strip()
-    tekst_lower = tekst_str.lower()
-    
-    print(f"\n--- SUROWY TEKST MPZP DLA AI (Cel: {cel_inwestycji.upper()}) ---")
-    print(tekst_str[:500])
-    print("----------------------------------\n")
 
-    if not tekst_str or len(tekst_str) < 15 or any(x in tekst_lower for x in ["no features", "error", "exception", "błąd", "brak danych"]):
-        print("Odrzucono zapytanie - brak twardych danych z urzędu (lub błąd serwera). Blokuję halucynacje.")
+async def generuj_opis_planistyczny_ai(
+    typ_dokumentu: str,
+    surowy_tekst_urzedowy: str,
+    cel_inwestycji: str = "dom jednorodzinny",
+    symbol: str | None = None,
+    nazwa_strefy: str | None = None,
+):
+    tekst = str(surowy_tekst_urzedowy or "").strip()
+
+    if not tekst or len(tekst) < 20:
         return {
-            "status": "zolty",
-            "opis": "Serwery urzędowe nie odpowiedziały w terminie lub gmina nie udostępnia cyfrowego planu (MPZP) w bazie WMS. Wymagana weryfikacja ręczna lub wystąpienie o WZ."
-        }
-    
-    if not surowy_tekst_urzedowy or "Brak" in surowy_tekst_urzedowy or len(surowy_tekst_urzedowy.strip()) < 30:
-        return {
-            "status": "zolty",
-            "opis": "Brak cyfrowego Planu Miejscowego. Inwestycja będzie wymagała wystąpienia o Warunki Zabudowy (WZ)."
+            "opis_kliencki": "Brakuje wystarczających danych urzędowych do wygenerowania opisu.",
+            "podsumowanie": "Wymagana weryfikacja ręczna.",
+            "ryzyko": "srednie"
         }
 
-    prompt_systemowy = f"""
-Jesteś analitykiem przestrzennym. Klasyfikujesz tekst urzędowy dla klienta, którego cel to: {cel_inwestycji.upper()}.
-Masz bezwzględny zakaz używania zwrotów typu "na podstawie tekstu", "dane wskazują". Pisz bezpośrednio.
+    # KRYTYCZNE dla B2B: jeśli publiczne WMS nie zwróciło symbolu strefy ani
+    # nazwy funkcji, mamy tylko metadane aktu prawnego (nazwa/numer/data uchwały),
+    # a NIE mamy żadnej informacji o przeznaczeniu działki. W tym trybie AI
+    # NIE MA PRAWA wypowiadać się czy można budować - tylko stwierdzić fakt
+    # istnienia dokumentu i odesłać do weryfikacji w rysunku planu.
+    ma_dane_strefy = bool(symbol) or bool(nazwa_strefy)
 
-ZASADA BEZWZGLĘDNA: Wybierz dokładnie JEDEN z 4 scenariuszy poniżej, bazując na słowach kluczowych w tekście.
+    if not ma_dane_strefy:
+        prompt_systemowy = f"""
+Jesteś analitykiem nieruchomości. Dostajesz tekst z publicznego WMS, który zawiera
+WYŁĄCZNIE metadane aktu planistycznego (nazwa dokumentu, numer uchwały, data) -
+ale NIE zawiera symbolu strefy ani opisu przeznaczenia działki.
 
-SCENARIUSZ 1 (PRIORYTET): Tekst zawiera słowo "PLAN OGÓLNY GMINY"
-- "status": Oceń strefę (np. mieszkaniowa/SJ = "zielony" lub "zolty", las/zieleń = "czerwony").
-- "opis": Sformułuj zwięźle: "Dla działki brak MPZP, jednak objęta jest nowym Planem Ogólnym Gminy (strefa: [WSTAW STREFĘ Z TEKSTU]). Do budowy wymagana decyzja WZ."
+BEZWZGLĘDNE ZASADY:
+1. ZABRONIONE jest pisać, że coś można lub nie można na działce zbudować.
+2. ZABRONIONE jest zgadywać funkcję terenu (mieszkaniowa, usługowa, rolna itd.).
+3. ZABRONIONE są sformułowania typu "teren umożliwia", "plan pozwala", "można planować".
+4. ZABRONIONE jest nawiązywanie do celu inwestycji użytkownika.
+5. Obowiązkowo napisz, że dla ustalenia przeznaczenia działki konieczne jest
+   sprawdzenie rysunku planu w urzędzie gminy lub w BIP gminy.
+6. Opis ma stwierdzić tylko fakt: działka leży na obszarze objętym dokumentem
+   {typ_dokumentu.upper()} o podanej nazwie/numerze/dacie.
 
-SCENARIUSZ 2 (PRIORYTET): Tekst zawiera słowo "STUDIUM"
-- "status": "zolty"
-- "opis": Złóż zdanie: "Dla działki brak obowiązującego MPZP, jednak objęta jest Studium (Uchwała [WSTAW NUMER I DATĘ Z TEKSTU]). Do rozpoczęcia budowy wymagane uzyskanie decyzji o Warunkach Zabudowy (WZ)."
-
-SCENARIUSZ 3: Tekst zawiera twarde ustalenia MPZP (symbole np. MN, R, U, przeznaczenie)
-- "status": "zielony" (jeśli plan pozwala na inwestycję), "czerwony" (jeśli wyklucza) lub "zolty" (warunkowo).
-- "opis": Podaj bezpośrednio przeznaczenie terenu w profesjonalnym żargonie urbanistycznym.
-
-SCENARIUSZ 4 (FALLBACK): W tekście NIE MA słowa "STUDIUM", NIE MA słowa "PLAN OGÓLNY" i jest informacja o braku planu.
-- "status": "zolty"
-- "opis": "Brak cyfrowego Planu Miejscowego dla tego obszaru. Inwestycja będzie wymagała wystąpienia o Warunki Zabudowy (WZ)."
-
-Zwróć TYLKO czysty obiekt JSON:
+Zwróć TYLKO czysty JSON:
 {{
-  "status": "kolor",
-  "opis": "Twój opis z wybranego scenariusza"
+  "opis_kliencki": "2-3 zdania: stwierdzasz istnienie dokumentu i odsyłasz do rysunku planu",
+  "podsumowanie": "jedno zdanie: plan istnieje, przeznaczenie wymaga weryfikacji w rysunku",
+  "ryzyko": "srednie"
 }}
+"""
+        prompt_user = f"""
+Typ dokumentu: {typ_dokumentu}
+Symbol strefy: BRAK w publicznym WMS
+Nazwa strefy: BRAK w publicznym WMS
+
+Treść urzędowa (tylko metadane aktu):
+{tekst}
+"""
+    else:
+        prompt_systemowy = f"""
+Jesteś analitykiem nieruchomości pomagającym pośrednikom i firmom z rynku nieruchomości.
+Twoim zadaniem jest uprościć urzędowy opis planistyczny dla klienta biznesowego.
+
+Dane wejściowe:
+- typ dokumentu: {typ_dokumentu}
+- cel inwestycji: {cel_inwestycji.upper()}
+- symbol strefy: {symbol or "brak"}
+- nazwa strefy: {nazwa_strefy or "brak"}
+
+Zasady:
+1. NIE zmieniaj typu dokumentu.
+2. NIE zgaduj rzeczy, których nie ma w treści.
+3. Pisz prostym, profesjonalnym językiem.
+4. Unikaj prawniczego bełkotu.
+5. Odpowiedź ma być krótka i konkretna.
+6. Nie używaj zwrotów typu "na podstawie tekstu", "z dokumentu wynika", "dane wskazują".
+7. Uwzględnij praktyczne znaczenie dla pośrednika, inwestora albo firmy sprawdzającej działkę przed zakupem.
+8. Nie pisz, że konkretna inwestycja na pewno może powstać, jeśli dokument mówi ogólnie o funkcji terenu.
+9. Jeśli w tekście pojawiają się określenia takie jak: zieleń, park, rolnictwo, las, zakaz zabudowy, strefa otwarta, to opis ma być wyraźnie ostrożny i wskazywać na możliwe ograniczenia inwestycyjne.
+10. Gdy dokument wskazuje ograniczenia, nie używaj pozytywnego tonu typu "sprzyja inwestycjom mieszkaniowym".
+11. Jeśli symbol lub nazwa strefy są nieznane ("brak"), NIE wypowiadaj się o możliwości zabudowy - odeślij do rysunku planu.
+
+Zwróć TYLKO czysty JSON w formacie:
+{{
+  "opis_kliencki": "2-4 zdania prostym językiem",
+  "podsumowanie": "jedno krótkie zdanie",
+  "ryzyko": "niskie albo srednie albo wysokie"
+}}
+"""
+
+        prompt_user = f"""
+Typ dokumentu: {typ_dokumentu}
+Cel inwestycji: {cel_inwestycji}
+Symbol strefy: {symbol or "brak"}
+Nazwa strefy: {nazwa_strefy or "brak"}
+
+Treść urzędowa:
+{tekst}
 """
 
     try:
@@ -61,19 +108,21 @@ Zwróć TYLKO czysty obiekt JSON:
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": prompt_systemowy},
-                {"role": "user", "content": f"Oto tekst z urzędu: {surowy_tekst_urzedowy}"}
+                {"role": "user", "content": prompt_user}
             ],
-            temperature=0.1
+            temperature=0.2
         )
-        
+
         odpowiedz_tekst = response.choices[0].message.content.strip()
+
         if odpowiedz_tekst.startswith("```json"):
             odpowiedz_tekst = odpowiedz_tekst.replace("```json", "").replace("```", "").strip()
-            
+
         return json.loads(odpowiedz_tekst)
 
-    except Exception as e:
+    except Exception:
         return {
-            "status": "zolty",
-            "opis": "Wykryliśmy dokumenty planistyczne dla tej działki, ale ich format wymaga dokładnej analizy ręcznej przez naszego eksperta."
+            "opis_kliencki": "Wykryto dokument planistyczny, ale jego treść wymaga dokładniejszej interpretacji ręcznej.",
+            "podsumowanie": "Wymagana dodatkowa analiza ekspercka.",
+            "ryzyko": "srednie"
         }
