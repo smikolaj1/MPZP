@@ -5,10 +5,9 @@ from pyproj import Transformer
 transformer_do_2180 = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
 NMT_URL = "https://services.gugik.gov.pl/nmt/"
 
-# Odległość między punktami pomiarowymi w metrach.
-# 25 m to kompromis: dla typowej działki 800-3000 m² próbki są w jej obrębie
-# albo tuż przy granicy, a nachylenie liczone na tym dystansie dobrze oddaje
-# spadek istotny dla posadowienia fundamentów.
+# Odległość między punktami pomiarowymi. 25 m to kompromis: dla typowej działki
+# 800 do 3000 m² próbki wpadają w jej obrębie lub tuż przy granicy, a nachylenie
+# liczone na tym dystansie dobrze oddaje spadek istotny dla fundamentów.
 DYSTANS_SAMPLING_M = 25
 
 
@@ -26,8 +25,8 @@ async def _pobierz_wysokosc(client: httpx.AsyncClient, x: float, y: float):
         if resp.status_code != 200:
             return None
         tekst = resp.text.strip()
-        # Sanity check: prawidłowa odpowiedź to pojedyncza liczba.
-        # Błąd serwera potrafi wrócić HTML/JSON — wtedy float() padnie.
+        # Prawidłowa odpowiedź to pojedyncza liczba. Błąd serwera potrafi wrócić
+        # HTML albo JSON, wtedy float() rzuci wyjątkiem.
         return float(tekst)
     except Exception:
         return None
@@ -37,9 +36,9 @@ async def sprawdz_nachylenie_terenu(lat: float, lon: float):
     x0, y0 = transformer_do_2180.transform(lon, lat)
     d = DYSTANS_SAMPLING_M
 
-    # Sampling: centrum + 4 kierunki (N/S/E/W).
-    # Pięć punktów wystarcza do oszacowania maks. spadku — więcej zapytań HTTP
-    # nie daje proporcjonalnego zysku precyzji dla pre-screeningu inwestycyjnego.
+    # Próbujemy centrum i cztery kierunki (N, S, E, W). Pięć punktów wystarcza
+    # do oszacowania maksymalnego spadku, więcej zapytań HTTP nie daje
+    # proporcjonalnego zysku precyzji przy wstępnej analizie działki.
     punkty = [
         ("centrum", x0, y0),
         ("N", x0, y0 + d),
@@ -59,7 +58,7 @@ async def sprawdz_nachylenie_terenu(lat: float, lon: float):
         if isinstance(h, (int, float)):
             wysokosci[nazwa] = h
 
-    # Potrzebujemy minimum 2 punktów żeby w ogóle policzyć różnicę.
+    # Bez minimum dwóch punktów nie policzymy różnicy.
     if len(wysokosci) < 2:
         return {
             "status": "zolty",
@@ -74,17 +73,17 @@ async def sprawdz_nachylenie_terenu(lat: float, lon: float):
     h_max = max(wysokosci.values())
     roznica = h_max - h_min
 
-    # Nachylenie szacujemy konserwatywnie: największa różnica wysokości
-    # podzielona przez DYSTANS_SAMPLING_M (dystans między sąsiadem a centrum).
-    # Dla pary N-S lub E-W dystans to 2×DYSTANS, ale zostawiamy /d świadomie —
-    # lepiej pokazać deweloperowi zawyżony spadek niż zaniżony.
+    # Nachylenie liczymy konserwatywnie: największa różnica wysokości dzielona
+    # przez DYSTANS_SAMPLING_M (dystans między sąsiadem a centrum). Dla pary
+    # N-S albo E-W faktyczny dystans to 2*DYSTANS, ale zostawiamy /d świadomie,
+    # bo lepiej pokazać deweloperowi spadek nieco zawyżony niż zaniżony.
     nachylenie_proc = round((roznica / d) * 100, 1)
 
-    # Progi dla typowej zabudowy mieszkaniowej jednorodzinnej:
-    # <5%   → standardowe fundamenty, bez znaczenia kosztowego
-    # 5-10% → odwodnienie, ew. wyrównanie terenu
-    # 10-15% → wzmocnione fundamenty, schodkowanie, znaczące koszty ziemne
-    # >15%  → projekt specjalistyczny, tarasowanie, badania geotechniczne
+    # Progi dla typowej zabudowy jednorodzinnej:
+    # poniżej 5% standardowe fundamenty bez wpływu na koszt,
+    # 5 do 10% odwodnienie i ewentualne wyrównanie terenu,
+    # 10 do 15% wzmocnione fundamenty, schodkowanie, znaczące koszty ziemne,
+    # powyżej 15% projekt specjalistyczny, tarasowanie, badania geotechniczne.
     if nachylenie_proc < 5:
         status = "zielony"
         opis = (

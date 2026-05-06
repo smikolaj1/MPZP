@@ -49,8 +49,8 @@ def generuj_ocene_gruntu(info_grunt: dict) -> dict:
     status = "zolty"
     opis = "Brak pełnych danych o klasie gruntu. Wymagana dodatkowa weryfikacja."
 
-    # Przypadki specjalne sentinel-status PRZED regexem symboli — w innym wypadku
-    # "Brak danych w EGiB" zostałoby potraktowane jako egzotyczny symbol.
+    # Statusy specjalne obsługujemy przed regexem symboli, bo inaczej
+    # "Brak danych w EGiB" trafiłoby do regexa jako egzotyczny symbol.
     if status_danych == "luka_egib":
         opis = (
             "EGiB odpowiada, ale nie prowadzi dla tej działki klasyfikacji gruntu "
@@ -138,8 +138,8 @@ def generuj_next_steps(
     if geologia.get("status") == "czerwony":
         kroki.append("Zlecić badania geotechniczne i sprawdzić warunki posadowienia budynku.")
 
-    # Nachylenie terenu z NMT — wpływa na fundamenty, odwodnienie i koszty ziemne.
-    # Dla terenu stromego wymagane projekt konstrukcyjny + geotechnika.
+    # Nachylenie terenu z NMT wpływa na fundamenty, odwodnienie i koszty ziemne.
+    # Dla terenu stromego wymagany jest projekt konstrukcyjny i geotechnika.
     if nmt.get("status") == "czerwony":
         kroki.append(
             "Zamówić szczegółową niwelację działki i projekt posadowienia uwzględniający "
@@ -148,7 +148,7 @@ def generuj_next_steps(
     elif nmt.get("status") == "zolty" and nmt.get("nachylenie_proc") and nmt["nachylenie_proc"] >= 10:
         kroki.append(
             "Uwzględnić w kosztorysie inwestycji wzmocnione fundamenty i system odwodnienia "
-            "działki — nachylenie terenu znacząco podnosi koszty prac ziemnych."
+            "działki - nachylenie terenu znacząco podnosi koszty prac ziemnych."
         )
 
     if natura.get("status") == "czerwony":
@@ -211,14 +211,15 @@ def generuj_werdykt_koncowy(
         nmt.get("status")
     ]
 
-    # Werdykt czyta szczegóły z głównego źródła (zrodla.mpzp / plan_ogolny / studium).
-    # Po uproszczeniu kontrakt API nie trzyma już symbolu/tekstu na top-level planowania.
+    # Werdykt czyta szczegóły z głównego źródła w zrodla (mpzp, plan_ogolny lub
+    # studium). Po uproszczeniu kontrakt API nie trzyma już symbolu ani tekstu
+    # na top-level planowania.
     glowne_zrodlo = planowanie.get("glowne_zrodlo") or "brak"
     zrodla = planowanie.get("zrodla") or {}
     glowny = zrodla.get(glowne_zrodlo) or {}
 
-    # Dla flag restrykcyjnych zbieramy dane ze WSZYSTKICH źródeł - jeśli którekolwiek
-    # mówi "las/zieleń/rolne", to jest sygnał ryzyka niezależnie od "głównego".
+    # Flagi restrykcyjne sprawdzamy we wszystkich źródłach. Jeśli któreś mówi
+    # "las", "zieleń" albo "rolne", to jest sygnał ryzyka niezależnie od głównego.
     symbol = str(glowny.get("symbol") or "").upper()
     nazwa_strefy = str(glowny.get("nazwa_strefy") or "").lower()
     wszystkie_teksty = " ".join(
@@ -255,8 +256,8 @@ def generuj_werdykt_koncowy(
         status = "czerwony"
         tytul = "Działka wymaga ostrożnej analizy przed wejściem w inwestycję"
     elif plan_bez_danych_strefy:
-        # Plan istnieje, ale publiczne WMS nie udostępniło symbolu/funkcji strefy.
-        # Nie wiemy co wolno. Werdykt musi być ostrożny, nigdy "zielony".
+        # Plan istnieje, ale publiczne WMS nie udostępniło symbolu ani funkcji
+        # strefy. Nie wiemy co wolno, więc werdykt musi być ostrożny, nigdy zielony.
         status = "zolty"
         tytul = "Plan istnieje, ale przeznaczenie działki wymaga weryfikacji w rysunku planu"
     elif statusy.count("zolty") >= 2:
@@ -288,7 +289,7 @@ def generuj_werdykt_koncowy(
         formy = natura.get("formy_ochrony", [])
         ma_punktowy = any(f.get("rygor") == "punktowy" for f in formy)
         if ma_punktowy:
-            najwazniejsze.append("w pobliżu pomnik przyrody – strefa ochronna 15 m do sprawdzenia na mapie")
+            najwazniejsze.append("w pobliżu pomnik przyrody - strefa ochronna 15 m do sprawdzenia na mapie")
         else:
             najwazniejsze.append("działka w strefie ochrony przyrody z ograniczeniami")
     if sieci.get("status") == "zielony":
@@ -297,12 +298,12 @@ def generuj_werdykt_koncowy(
         najwazniejsze.append("trzeba potwierdzić dostęp do drogi publicznej")
     if nmt.get("status") == "czerwony":
         najwazniejsze.append(
-            f"teren bardzo stromy (ok. {nmt.get('nachylenie_proc')}%) — "
+            f"teren bardzo stromy (ok. {nmt.get('nachylenie_proc')}%) - "
             f"zabudowa wymaga projektu konstrukcyjnego i tarasowania"
         )
     elif nmt.get("status") == "zolty" and nmt.get("nachylenie_proc") and nmt["nachylenie_proc"] >= 10:
         najwazniejsze.append(
-            f"teren pochyły (ok. {nmt.get('nachylenie_proc')}%) — "
+            f"teren pochyły (ok. {nmt.get('nachylenie_proc')}%) - "
             f"wyższe koszty fundamentów i odwodnienia"
         )
 
@@ -358,10 +359,10 @@ async def pelna_diagnoza(dane: InputWspolrzedne):
         nazwa_strefy=wynik_planowania.get("nazwa_strefy"),
     )
 
-    # Top-level = SYNTEZA planowania (dla werdyktu i frontendu) — ma być SHORT.
-    # Wszystkie szczegóły per źródło (symbol, nazwa uchwały, surowy tekst itd.)
-    # siedzą WYŁĄCZNIE w planowanie_przestrzenne.zrodla.{mpzp,plan_ogolny,studium}.
-    # Żadnej duplikacji.
+    # Top-level to synteza planowania na potrzeby werdyktu i frontendu, ma być
+    # krótka. Wszystkie szczegóły per źródło (symbol, nazwa uchwały, surowy
+    # tekst) trzymamy wyłącznie w planowanie_przestrzenne.zrodla pod kluczami
+    # mpzp, plan_ogolny i studium. Bez duplikacji.
     planowanie_przestrzenne = {
         "glowne_zrodlo": wynik_planowania.get("glowne_zrodlo"),
         "status": wynik_planowania.get("status"),

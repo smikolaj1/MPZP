@@ -23,11 +23,10 @@ async def generuj_opis_planistyczny_ai(
             "ryzyko": "srednie"
         }
 
-    # KRYTYCZNE dla B2B: jeśli publiczne WMS nie zwróciło symbolu strefy ani
-    # nazwy funkcji, mamy tylko metadane aktu prawnego (nazwa/numer/data uchwały),
-    # a NIE mamy żadnej informacji o przeznaczeniu działki. W tym trybie AI
-    # NIE MA PRAWA wypowiadać się czy można budować - tylko stwierdzić fakt
-    # istnienia dokumentu i odesłać do weryfikacji w rysunku planu.
+    # Jeśli publiczne WMS nie zwróciło symbolu strefy ani nazwy funkcji, mamy tylko
+    # metadane aktu prawnego (nazwa, numer, data uchwały) i nic o przeznaczeniu działki.
+    # W tym trybie AI nie powinno wypowiadać się czy można budować, tylko stwierdzić
+    # że plan istnieje i odesłać do weryfikacji w rysunku planu.
     ma_dane_strefy = bool(symbol) or bool(nazwa_strefy)
 
     if not ma_dane_strefy:

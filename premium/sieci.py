@@ -57,10 +57,10 @@ async def sprawdz_uzbrojenie_terenu(lat: float, lon: float):
                 wykryte.append("Gaz")
             if "elektroenerget" in czysty_tekst or "prąd" in czysty_tekst or "prad" in czysty_tekst or "kabel" in czysty_tekst:
                 wykryte.append("Prąd")
-            # Telekomunikacja - światłowód, miedź, kabel telefoniczny.
-            # UWAGA: "kabel" sam w sobie jest już wyłapywany przez warunek "Prąd" wyżej -
-            # tutaj wymagamy bardziej specyficznych fraz, żeby nie podwajać tej samej
-            # warstwy w wynikach. "telekom" pokrywa "telekomunikacyjny", "telekomunikacja".
+            # Telekomunikacja: światłowód, miedź, kabel telefoniczny. Samo
+            # "kabel" jest już wyłapywane wyżej przez warunek "Prąd", więc tutaj
+            # wymagamy bardziej specyficznych fraz, żeby nie podwajać warstwy.
+            # "telekom" pokrywa "telekomunikacyjny" i "telekomunikacja".
             if "telekom" in czysty_tekst or "światłowód" in czysty_tekst or "swiatlowod" in czysty_tekst:
                 wykryte.append("Telekomunikacja")
 

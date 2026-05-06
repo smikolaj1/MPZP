@@ -29,9 +29,9 @@ async def pobierz_podstawy_dzialki(lat: float, lon: float):
 
             wynik_id = linie[1].strip()
 
-            # 1) Metadane administracyjne — zapytanie ZAWSZE bez geom_wkt
-            #    (ULDK potrafi zwrócić błąd gdy w jednym `result` miesza się
-            #    pola administracyjne z geometrią — trzymamy to osobno).
+            # Metadane administracyjne pobieramy zawsze bez geom_wkt. ULDK potrafi
+            # zwrócić błąd gdy w jednym `result` miesza się pola administracyjne
+            # z geometrią, więc trzymamy to osobno.
             params_details = {
                 "request": "GetParcelById",
                 "id": wynik_id,
@@ -41,14 +41,14 @@ async def pobierz_podstawy_dzialki(lat: float, lon: float):
 
             linie_detale = resp_details.text.strip().split('\n')
             if len(linie_detale) > 1 and linie_detale[0] == "0":
-                # Pola administracyjne nie zawierają | ani , więc stary split działa,
-                # ale używamy split("|") dla spójności i odporności.
+                # Pola administracyjne nie zawierają | ani przecinka, ale dzielimy po |
+                # dla spójności z resztą parsowania.
                 dane = linie_detale[1].split("|")
             else:
                 dane = []
 
-            # 2) Geometria działki — osobne zapytanie, graceful degradation.
-            #    Jeśli padnie, raport działa dalej bez powierzchni i obrysu.
+            # Geometrię działki pobieramy osobnym zapytaniem. Jeśli padnie, raport
+            # działa dalej bez powierzchni i obrysu.
             powierzchnia_m2 = None
             powierzchnia_ha = None
             geom_wkt_czysty = None
@@ -62,8 +62,8 @@ async def pobierz_podstawy_dzialki(lat: float, lon: float):
                 linie_geom = resp_geom.text.strip().split('\n')
                 if len(linie_geom) > 1 and linie_geom[0] == "0":
                     surowy_wkt = linie_geom[1].strip()
-                    # ULDK zwraca "SRID=2180;POLYGON((...))" — obcinamy prefiks SRID.
-                    # EPSG:2180 jest metryczny → shapely .area daje m² bez reprojekcji.
+                    # ULDK zwraca "SRID=2180;POLYGON((...))", więc obcinamy prefiks SRID.
+                    # EPSG:2180 jest metryczny, shapely .area daje m² bez reprojekcji.
                     geom_wkt_czysty = (
                         surowy_wkt.split(";", 1)[1].strip()
                         if ";" in surowy_wkt else surowy_wkt
@@ -72,7 +72,7 @@ async def pobierz_podstawy_dzialki(lat: float, lon: float):
                     powierzchnia_m2 = round(geom.area, 1)
                     powierzchnia_ha = round(geom.area / 10000, 4)
             except Exception:
-                # Brak geometrii nie blokuje raportu — po prostu pola zostają None.
+                # Brak geometrii nie blokuje raportu, pola zostają None.
                 geom_wkt_czysty = None
 
             return {
@@ -120,7 +120,6 @@ async def sprawdz_klase_gruntu(lat: float, lon: float):
         return (tag.text or "").strip()
 
     try:
-        # Próba 1: bbox 5 m (tak jak dotychczas)
         soup = await _pobierz(5)
 
         grupa = _atr(soup, "Grupa rejestrowa")
@@ -128,8 +127,8 @@ async def sprawdz_klase_gruntu(lat: float, lon: float):
         kontur = _atr(soup, "Oznaczenie konturu")
         pole_ha = _atr(soup, "Pole pow. w ewidencji gruntów (ha)")
 
-        # Jeśli klasyfikacja pusta, spróbuj szerszym bbox (25 m) - bywa, że punkt trafia
-        # między kontury i pikselowo dostaje pustą część warstwy klasyfikacyjnej.
+        # Jeśli klasyfikacja pusta, próbujemy szerszego bbox (25 m). Punkt może trafić
+        # między kontury i pikselowo dostać pustą część warstwy klasyfikacyjnej.
         if not uzytek and not kontur:
             soup2 = await _pobierz(25)
             uzytek = _atr(soup2, "Oznaczenie użytku") or uzytek
@@ -139,10 +138,9 @@ async def sprawdz_klase_gruntu(lat: float, lon: float):
             if not pole_ha:
                 pole_ha = _atr(soup2, "Pole pow. w ewidencji gruntów (ha)")
 
-        # Rozróżnienie trzech sytuacji:
-        # A) pełne dane klasyfikacyjne → zielony
-        # B) GUGiK odpowiedział, ale brak klasyfikacji dla tej działki → zolty (luka w EGiB)
-        # C) żaden atrybut się nie wczytał → błąd serwera
+        # Rozróżniamy trzy sytuacje: pełne dane klasyfikacyjne (zielony),
+        # GUGiK odpowiedział ale bez klasyfikacji (zolty, luka w EGiB),
+        # żaden atrybut się nie wczytał (błąd serwera).
         odpowiedz_zawiera_cokolwiek = any([grupa, uzytek, kontur, pole_ha])
 
         if uzytek or kontur:
@@ -150,14 +148,14 @@ async def sprawdz_klase_gruntu(lat: float, lon: float):
                 "surowy_wynik": "Dane XML (EPSG:2180)",
                 "grupa_rejestrowa": grupa or "Brak",
                 "klasa_gruntu": kontur or "Brak",
-                "uzytek": f"Klasa: {kontur or '—'} | Użytek: {uzytek or '—'}",
+                "uzytek": f"Klasa: {kontur or '-'} | Użytek: {uzytek or '-'}",
                 "pole_ha": pole_ha or None,
                 "status_danych": "ok"
             }
 
         if odpowiedz_zawiera_cokolwiek:
-            # EGiB odpowiedziało, ale klasyfikacja nie jest prowadzona dla tej działki
-            # (typowo: działki zabudowane "B", albo brak aktualizacji przez starostę).
+            # EGiB odpowiada, ale dla tej działki klasyfikacja nie jest prowadzona
+            # (zwykle działki zabudowane "B" albo brak aktualizacji przez starostę).
             return {
                 "surowy_wynik": "Dane XML (EPSG:2180) - brak klasyfikacji",
                 "grupa_rejestrowa": grupa or "Brak",
@@ -192,13 +190,12 @@ def _wyczysc_surowy_tekst(tekst: str) -> str:
     """Czyści surowy tekst z WMS: usuwa ciągi kropek, duplikaty spacji, ogony."""
     if not tekst:
         return ""
-    # Sekwencje kropek (3+) → pojedyncza spacja. Bywa, że WMS kończy "................................"
+    # Ciągi kropek zamieniamy na spację (WMS lubi kończyć "................").
     tekst = re.sub(r"\.{3,}", " ", tekst)
-    # Powtórzenia "RysunekAktuPlanowania RysunekAktuPlanowania" → pojedyncze
+    # Powtórzone słowa typu "RysunekAktuPlanowania RysunekAktuPlanowania".
     tekst = re.sub(r"\b(\w+)(\s+\1){1,}\b", r"\1", tekst)
-    # Duplikaty spacji/tabów/nowych linii
     tekst = re.sub(r"\s+", " ", tekst).strip()
-    # Obcinamy do 2000 znaków - nikt tego nie czyta, a JSON staje się czytelny
+    # Obcinamy do 2000 znaków, żeby JSON był czytelny.
     return tekst[:2000]
 
 
@@ -224,9 +221,9 @@ def _czy_to_sensowna_odpowiedz(tekst: str) -> bool:
         "mswmsloadgetmapparams",
         "no features",
         # Strony informacyjne WMS (serwer zwraca "stronę startową" gdy brak danych).
-        # UWAGA: frazy typu "dane o projektowanych planach", "wybierz odpowiednią warstwę"
-        # NIE mogą być tutaj - KIPOG wrzuca je JAKO NAGŁÓWEK nawet gdy pod spodem są realne
-        # dane POG. Ich obsługa jest w sprawdz_plan_ogolny przez strip boilerplate.
+        # Frazy typu "dane o projektowanych planach", "wybierz odpowiednią warstwę"
+        # nie mogą trafić do tej listy, bo KIPOG wrzuca je jako nagłówek nawet gdy
+        # pod spodem są realne dane POG. Obsługujemy je w sprawdz_plan_ogolny.
         "o usłudze",
         "o usludze",
         "usługa wms pozwalająca",
@@ -236,7 +233,7 @@ def _czy_to_sensowna_odpowiedz(tekst: str) -> bool:
         "could not find layer",
         "layer not found",
     ]
-    # wymagamy dłuższej treści - krótkie odpowiedzi z WMS to najczęściej błędy
+    # Krótkie odpowiedzi z WMS to najczęściej błędy.
     if len(tekst_lower) < 25:
         return False
     return not any(smiec in tekst_lower for smiec in czarna_lista)
@@ -246,14 +243,14 @@ def _wyciagnij_symbol_i_funkcje_z_tekstu(tekst: str):
     tekst_czysty = re.sub(r"\s+", " ", tekst).strip()
     tekst_lower = tekst_czysty.lower()
 
-    # Zbiór "stopwords" – pojedyncze litery/skróty, które często pojawiają się w tekście,
-    # ale nie są symbolami planistycznymi
+    # Pojedyncze litery i skróty, które często wpadają w regex symboli, ale
+    # nie są symbolami planistycznymi.
     STOPWORDS_SYMBOLI = {
         "WMS", "XML", "HTML", "GML", "EPSG", "URL", "JST",
         "O", "A", "I", "W", "Z", "NA", "OD", "DO", "PO", "ZA",
         "GIS", "GUGIK", "RDOS", "GDOS", "JPG", "PNG", "PDF",
         "KB", "MB", "CM", "M", "KM", "SP", "LP", "NR",
-        # Słowa-nagłówki z odpowiedzi WMS - nie są symbolami planistycznymi
+        # Nagłówki z odpowiedzi WMS, nie symbole planistyczne.
         "NAZWA", "TYP", "DATA", "NUMER", "UCHWALA", "UCHWAŁY",
         "UCHWALENIA", "LINK", "MPZP", "POG", "STUDIUM", "RODZAJ",
         "ID", "KOD", "STATUS", "OPIS", "ROK", "RYSUNEK", "AKT",
@@ -262,12 +259,11 @@ def _wyciagnij_symbol_i_funkcje_z_tekstu(tekst: str):
 
     symbol = None
 
-    # 1. Najbardziej wiarygodne – jawny tag "symbol_w_planie"
+    # Najbardziej wiarygodne źródło: jawny tag "symbol_w_planie".
     match_symbol_plan = re.search(r"symbol_w_planie\s+([0-9]+\.[A-Z/]+)", tekst_czysty)
     if match_symbol_plan:
         symbol = match_symbol_plan.group(1)
 
-    # 2. Fraza "obowiązuje X"
     if not symbol:
         match_status = re.search(r"\bobowiązuje\s+([A-Z]{2,}[A-Z/0-9]*)\b", tekst_czysty)
         if match_status:
@@ -275,8 +271,8 @@ def _wyciagnij_symbol_i_funkcje_z_tekstu(tekst: str):
             if kandydat not in STOPWORDS_SYMBOLI:
                 symbol = kandydat
 
-        # Usuwamy numery uchwał typu "XV/181/2008", "Nr 123/2021" - żeby nie wyłapywać
-    # cyfr rzymskich z nagłówków aktów prawnych jako symboli planistycznych
+    # Usuwamy numery uchwał typu "XV/181/2008" czy "Nr 123/2021", żeby cyfry rzymskie
+    # z nagłówków aktów prawnych nie trafiały do symboli planistycznych.
     tekst_bez_uchwal = re.sub(
         r"uchwa[łl]a\s*(?:nr\s*)?[IVXLCDM]+/\d+/\d+",
         "",
@@ -289,13 +285,13 @@ def _wyciagnij_symbol_i_funkcje_z_tekstu(tekst: str):
         tekst_bez_uchwal
     )
 
-    # 3. Fallback – szukaj symboli typu "1.MN", "MN/U", "MW"
-    #    Wymagamy minimum 2 znaków dla symboli czysto literowych,
-    #    żeby nie wyłapać przyimków typu "O", "W", "I".
+    # Ostatnia próba: szukamy symboli typu "1.MN", "MN/U", "MW".
+    # Minimum 2 znaki dla symboli czysto literowych, żeby nie łapać przyimków
+    # typu "O", "W", "I".
     if not symbol:
         symbole = re.findall(r"\b([0-9]+\.[A-Z/]+|[A-Z]{2,6}(?:/[A-Z]{1,6})?)\b", tekst_bez_uchwal)
 
-        # Wyklucz same cyfry rzymskie – to niemal zawsze numery sesji/uchwał, nie symbole planistyczne
+        # Same cyfry rzymskie to prawie zawsze numery sesji lub uchwał.
         def _to_nie_cyfra_rzymska(s):
             return not bool(re.fullmatch(r"[IVXLCDM]+", s))
 
@@ -305,8 +301,8 @@ def _wyciagnij_symbol_i_funkcje_z_tekstu(tekst: str):
         ]
         symbol = symbole_odfiltrowane[0] if symbole_odfiltrowane else None
 
-    # Funkcja – tylko gdy tekst wygląda na realną odpowiedź z planu,
-    # nie stronę informacyjną serwisu
+    # Funkcję wyciągamy tylko gdy tekst wygląda na realną odpowiedź z planu,
+    # a nie stronę informacyjną serwisu.
     funkcja = None
 
     strona_informacyjna_markery = [
@@ -320,8 +316,8 @@ def _wyciagnij_symbol_i_funkcje_z_tekstu(tekst: str):
     if any(m in tekst_lower for m in strona_informacyjna_markery):
         return None, None
 
-    # Dodatkowo – jeśli tekst nie zawiera typowych markerów planu,
-    # nie zgaduj funkcji na podstawie pojedynczego słowa
+    # Jeśli tekst nie zawiera typowych markerów planu, nie zgadujemy funkcji
+    # na podstawie pojedynczego słowa.
     markery_planu = [
         "przeznaczenie", "teren", "zabudow", "strefa",
         "plan miejscowy", "plan ogólny", "plan ogolny",
@@ -382,9 +378,9 @@ async def sprawdz_mpzp_dokument(lat: float, lon: float):
             if _czy_to_sensowna_odpowiedz(tekst_html):
                 symbol, funkcja = _wyciagnij_symbol_i_funkcje_z_tekstu(tekst_html)
                 meta = _wyciagnij_metadane_uchwaly(tekst_html)
-                # Status zależy od tego czy udało nam się wyciągnąć przeznaczenie:
-                # - symbol LUB funkcja → "zielony" (wiemy co wolno)
-                # - tylko metadane aktu → "zolty" (wiemy że plan jest, ale nie co wolno)
+                # Status zależy od tego czy udało się wyciągnąć przeznaczenie.
+                # Symbol albo funkcja oznaczają zielony (wiemy co wolno).
+                # Same metadane aktu to żółty (plan jest, ale nie wiemy co wolno).
                 ma_dane_strefy = bool(symbol) or bool(funkcja)
                 return {
                     "typ_dokumentu": "mpzp",
@@ -491,10 +487,10 @@ async def sprawdz_plan_ogolny(lat: float, lon: float):
             resp_pog = await client.get(KIPOG_WMS_URL, params=params_pog, timeout=15.0)
             tekst_pog = BeautifulSoup(resp_pog.text, "html.parser").get_text(separator=" ", strip=True)
 
-            # Usuwamy boilerplate serwerów - KIPOG ZAWSZE prefixuje odpowiedź nagłówkiem
-            # "Dane o projektowanych planach ogólnych dla gmin. Dane dla wybranej gminy...",
-            # nawet gdy pod spodem są realne dane POG. Traktujemy to jak ogonek Geoserver -
-            # wycinamy, a decyzję 'czy sensowna odpowiedź' podejmujemy po oczyszczeniu.
+            # KIPOG zawsze prefixuje odpowiedź nagłówkiem typu "Dane o projektowanych
+            # planach ogólnych dla gmin. Dane dla wybranej gminy...", nawet gdy pod
+            # spodem są realne dane POG. Wycinamy ten nagłówek, a o sensowności
+            # odpowiedzi decydujemy dopiero po oczyszczeniu.
             boilerplate_kipog = [
                 "Geoserver GetFeatureInfo output",
                 "Dane o projektowanych planach ogólnych dla gmin",
@@ -509,9 +505,10 @@ async def sprawdz_plan_ogolny(lat: float, lon: float):
             ]
             for bp in boilerplate_kipog:
                 tekst_pog = tekst_pog.replace(bp, "")
-            # KIPOG dopisuje NA KOŃCU odpowiedzi stopkę "O usłudze Usługa WMS pozwalająca
-            # na przeglądanie danych...". Te frazy trafiają do blacklisty jako "strona
-            # informacyjna", wycinając całą sensowną odpowiedź POG. Wycinamy stopkę tutaj.
+            # KIPOG dopisuje na końcu stopkę "O usłudze Usługa WMS pozwalająca na
+            # przeglądanie danych...". Te frazy są na czarnej liście jako "strona
+            # informacyjna" i potrafią uciąć całą sensowną odpowiedź POG, więc
+            # stopkę odcinamy tutaj.
             tekst_pog = re.sub(
                 r"\s*O\s+us[łl]udze\s+Us[łl]uga\s+WMS.*$",
                 "",
@@ -527,18 +524,17 @@ async def sprawdz_plan_ogolny(lat: float, lon: float):
             meta = _wyciagnij_metadane_uchwaly(tekst_pog)
             parametry = _wyciagnij_parametry_pog(tekst_pog)
 
-            # Status zależy od tego czy wyciągnęliśmy przeznaczenie GŁÓWNE strefy,
-            # NIE od tego co pada w dopuszczeniach (w 'Profil podstawowy' SJ wymienione
-            # jest m.in. "teren zieleni urządzonej" jako jedno z DOPUSZCZEŃ - to nie znaczy
-            # że cała strefa to zieleń). Decyzja czerwony/zielony na podstawie SYMBOLU
-            # i NAZWY strefy (a nie surowego tekstu).
+            # Status zależy od głównego przeznaczenia strefy, a nie od tego co pada
+            # w dopuszczeniach. W 'Profil podstawowy SJ' bywa wymieniony np. "teren
+            # zieleni urządzonej" jako jedno z dopuszczeń, ale to nie znaczy, że
+            # cała strefa to zieleń. Decydujemy na podstawie symbolu i nazwy strefy.
             ma_dane_strefy = bool(symbol) or bool(funkcja)
             symbol_upper = (symbol or "").upper()
             funkcja_lower = (funkcja or "").lower()
 
-            # Symbole planistyczne oznaczające strefy niebudowlane jako główne przeznaczenie:
-            # ZP = zieleń urządzona, ZL/LS = lasy, ZN = zieleń naturalna, R = rolne,
-            # WS = wody, ZC = cmentarze
+            # Symbole stref niebudowlanych jako główne przeznaczenie:
+            # ZP zieleń urządzona, ZL/LS lasy, ZN zieleń naturalna, R rolne,
+            # WS wody, ZC cmentarze.
             symbole_niebudowlane = ("ZP", "ZL", "LS", "ZN", "R", "WS", "ZC")
             nazwa_niebudowlana = any(
                 fraza in funkcja_lower
@@ -552,8 +548,8 @@ async def sprawdz_plan_ogolny(lat: float, lon: float):
             else:
                 status = "zolty"
 
-            # Opis kontekstowy zależny od statusu aktu - "w opracowaniu" znaczy
-            # że plan jeszcze nie obowiązuje, można go wykorzystać tylko POMOCNICZO.
+            # Opis zależy od statusu aktu. "w opracowaniu" znaczy, że plan jeszcze
+            # nie obowiązuje i można go wykorzystać tylko pomocniczo.
             status_aktu = meta.get("status_aktu")
             if status_aktu == "w opracowaniu":
                 opis_pog = (
@@ -681,11 +677,11 @@ def _wyciagnij_parametry_pog(tekst: str) -> dict:
 def _wyciagnij_metadane_uchwaly(tekst: str) -> dict:
     """
     Wyciąga z surowego tekstu metadane aktu prawnego:
-    - numer uchwały (np. "XV/181/2008")
-    - data uchwalenia (TYLKO gdy występuje obok "uchwał..." - NIE mylić z "Obowiązuje od")
-    - data obowiązywania od (z "Obowiązuje od X")
-    - status aktu ("obowiązujący" / "w opracowaniu")
-    - nazwa dokumentu
+    numer uchwały (np. "XV/181/2008"),
+    datę uchwalenia (tylko obok "uchwał...", nie mylić z "Obowiązuje od"),
+    datę obowiązywania od (z "Obowiązuje od X"),
+    status aktu ("obowiązujący" lub "w opracowaniu"),
+    nazwę dokumentu.
     """
     meta = {
         "numer_uchwaly": None,
@@ -701,7 +697,7 @@ def _wyciagnij_metadane_uchwaly(tekst: str) -> dict:
     tekst_czysty = re.sub(r"\s+", " ", tekst).strip()
     tekst_lower = tekst_czysty.lower()
 
-    # Numer uchwały – typowy format: "XV/181/2008"
+    # Numer uchwały, typowy format: "XV/181/2008".
     match_numer = re.search(
         r"uchwa[łl]a\s*(?:nr\s*)?([IVXLCDM]+/\d+/\d{2,4})",
         tekst_czysty,
@@ -712,9 +708,9 @@ def _wyciagnij_metadane_uchwaly(tekst: str) -> dict:
     if match_numer:
         meta["numer_uchwaly"] = match_numer.group(1)
 
-    # Data uchwalenia - TYLKO gdy występuje w kontekście "Data uchwalenia X" / "uchwalono X"
-    # / "z dnia X". NIE bierzemy pierwszej daty ISO z tekstu, bo dla POG projektowanego
-    # to jest "Obowiązuje od", a nie data uchwały.
+    # Datę uchwalenia bierzemy tylko w kontekście "Data uchwalenia X", "uchwalono X"
+    # albo "z dnia X". Pierwsza data ISO z tekstu nie wystarczy, bo dla POG
+    # projektowanego to jest "Obowiązuje od", a nie data uchwały.
     match_data_uchwaly = re.search(
         r"(?:data\s+uchwal[a-z]+|uchwalon[ao]|z\s+dnia)\s*[: ]\s*(\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{4})",
         tekst_czysty,
@@ -732,18 +728,18 @@ def _wyciagnij_metadane_uchwaly(tekst: str) -> dict:
     if match_data_obow:
         meta["data_obowiazywania_od"] = match_data_obow.group(1)
 
-    # Status aktu - "w opracowaniu" (projekt) vs "obowiązujący"
+    # Status aktu: "w opracowaniu" (projekt) albo "obowiązujący".
     if "w opracowaniu" in tekst_lower:
         meta["status_aktu"] = "w opracowaniu"
     elif "obowi[ąa]zuj[ąa]cy" in tekst_lower or re.search(r"obowi[ąa]zuj[ąa]cy", tekst_lower):
         meta["status_aktu"] = "obowiązujący"
     elif meta["data_uchwaly"] or meta["numer_uchwaly"]:
-        # Jeśli mamy numer/datę uchwały, ale status nie jest wypisany wprost -
-        # domyślnie traktujemy jako obowiązujący (bo jest akt prawny).
+        # Jeśli mamy numer lub datę uchwały, a status nie jest wypisany wprost,
+        # traktujemy akt jako obowiązujący.
         meta["status_aktu"] = "obowiązujący"
 
-    # Nazwa dokumentu – fragment typu "Studium Uwarunkowań i Kierunków..."
-    # lub "Miejscowy Plan Zagospodarowania..."
+    # Nazwa dokumentu, np. "Studium Uwarunkowań i Kierunków..." albo
+    # "Miejscowy Plan Zagospodarowania...".
     match_nazwa = re.search(
         r"(Studium\s+Uwarunkowa[ńn][^.\n\t]{0,200}|Miejscow[a-ząż]+\s+Plan[^.\n\t]{0,200}|Plan\s+Og[óo]ln[a-ząż]+[^.\n\t]{0,200})",
         tekst_czysty,
@@ -751,8 +747,8 @@ def _wyciagnij_metadane_uchwaly(tekst: str) -> dict:
     )
     if match_nazwa:
         nazwa = match_nazwa.group(1).strip()
-        # Ucięcie przed znanymi markerami kolejnych pól w odpowiedzi WMS
-        # (zapobiega połknięciu "Typ: MPZP Numer uchwały: ... Data uchwalenia: ...")
+        # Ucinamy przed znanymi markerami kolejnych pól w odpowiedzi WMS, żeby
+        # nie połknąć "Typ: MPZP Numer uchwały: ... Data uchwalenia: ...".
         markery_konca = [
             "Typ:", "Typ ", "Numer uchwały", "Numer uchwaly",
             "Data uchwalenia", "Data wejścia", "Data wejscia",
@@ -854,7 +850,7 @@ async def sprawdz_planowanie_przestrzenne(lat: float, lon: float):
     wynik_pog = _bezpieczny(wyniki[1])
     wynik_studium = _bezpieczny(wyniki[2])
 
-    # Priorytet głównego źródła dla werdyktu: MPZP > POG > Studium
+    # Priorytet głównego źródła dla werdyktu: MPZP, potem POG, potem Studium.
     glowne_zrodlo = "brak"
     glowny_wynik = None
     if wynik_mpzp and wynik_mpzp.get("pewnosc") != "niska":
@@ -883,8 +879,8 @@ async def sprawdz_planowanie_przestrzenne(lat: float, lon: float):
             "pewnosc": "niska",
         }
 
-    # Spłaszczenie: zwracamy pola głównego źródła (kompatybilność wstecz z main.py)
-    # + pełny blok 'zrodla' z danymi ze wszystkich trzech systemów.
+    # Zwracamy spłaszczone pola głównego źródła (dla zgodności z main.py) razem
+    # z pełnym blokiem 'zrodla' z danymi ze wszystkich trzech systemów.
     return {
         **glowny_wynik,
         "glowne_zrodlo": glowne_zrodlo,

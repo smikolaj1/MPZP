@@ -7,10 +7,9 @@ transformer_do_2180 = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=T
 
 GDOS_WMS_URL = "https://sdi.gdos.gov.pl/wms"
 
-# Warstwy GDOŚ z podziałem na rygor ochrony
-# (nazwa_warstwy, etykieta_dla_klienta, rygor)
-# rygor: "scisly" | "umiarkowany" | "punktowy"
-# Warstwy GDOŚ - nazwy zgodne z GetCapabilities WMS https://sdi.gdos.gov.pl/wms
+# Warstwy GDOŚ pogrupowane po rygorze ochrony.
+# Krotka: nazwa warstwy, etykieta dla klienta, rygor ("scisly", "umiarkowany"
+# albo "punktowy"). Nazwy zgodne z GetCapabilities WMS https://sdi.gdos.gov.pl/wms
 WARSTWY_GDOS = [
     # Ścisła ochrona
     ("GDOS:ParkiNarodowe",              "Park Narodowy",                       "scisly"),
@@ -52,8 +51,8 @@ async def _sprawdz_warstwe(client: httpx.AsyncClient, bbox: str, nazwa_warstwy: 
 
         tekst = BeautifulSoup(resp.text, "html.parser").get_text(separator=" ", strip=True)
 
-        # Usuwamy "boilerplate" odpowiedzi GeoServera – jeśli po usunięciu
-        # nie zostaje realna treść, to znaczy, że w bboxie nie ma żadnego feature'a.
+        # Usuwamy stałe nagłówki GeoServera. Jeśli po ich wycięciu nie zostaje
+        # realna treść, w bboxie nie ma żadnego obiektu.
         boilerplate = [
             "Geoserver GetFeatureInfo output",
             "GetFeatureInfo output",
@@ -79,12 +78,12 @@ async def _sprawdz_warstwe(client: httpx.AsyncClient, bbox: str, nazwa_warstwy: 
         if any(err in tekst_lower for err in blacklist):
             return None, None
 
-        # Wymagamy realnej treści (atrybuty feature'a są zwykle dłuższe niż 30 znaków)
+        # Wymagamy realnej treści, atrybuty obiektu są zwykle dłuższe niż 30 znaków.
         if len(tekst_czysty) < 30:
             return None, None
 
-        # Dodatkowo – realna odpowiedź z GDOŚ zawiera nazwę obszaru lub kod (PLH, PLB itp.)
-        # Jeśli brak tego – uznajemy za pustą odpowiedź
+        # Realna odpowiedź z GDOŚ zawiera nazwę obszaru albo kod (PLH, PLB itp.).
+        # Brak takich markerów traktujemy jak pustą odpowiedź.
         markery_realnej_odpowiedzi = [
             "nazwa", "kod", "plh", "plb", "powierzchnia",
             "data", "akt prawny", "id_", "park", "rezerwat",
@@ -120,7 +119,8 @@ async def sprawdz_ochrone_przyrody(lat: float, lon: float):
 
     async with httpx.AsyncClient(verify=False, follow_redirects=True) as client:
         try:
-            # Sekwencyjnie – GDOŚ potrafi się gubić przy wielu równoległych zapytaniach
+            # GDOŚ potrafi się gubić przy wielu równoległych zapytaniach,
+            # więc uderzamy w warstwy sekwencyjnie.
             import asyncio
             zadania = [
                 _sprawdz_warstwe(client, bbox, warstwa)
@@ -176,7 +176,7 @@ async def sprawdz_ochrone_przyrody(lat: float, lon: float):
         opis = (
             f"W promieniu 15 m od punktu sprawdzenia wykryto punktową formę ochrony: {nazwy}. "
             f"Zgodnie z art. 45 ustawy o ochronie przyrody w strefie 15 m wokół pomnika obowiązuje "
-            f"zakaz robót ziemnych i zabudowy – jednak ta strefa może zajmować tylko fragment działki. "
+            f"zakaz robót ziemnych i zabudowy - jednak ta strefa może zajmować tylko fragment działki. "
             f"Wymagana weryfikacja ręczna na mapie zasadniczej: jeśli strefa dotyczy brzegu działki, "
             f"pozostała część może być w pełni zabudowalna."
         )
