@@ -64,7 +64,6 @@ def generuj_ocene_gruntu(info_grunt: dict) -> dict:
         opis = "Serwer WMS EGiB nie zwrócił odpowiedzi. Wymagana weryfikacja w rejestrach urzędowych."
         return {"status": "zolty", "klasa": klasa, "uzytek": uzytek, "opis": opis}
 
-    # Normalna analiza symboli klasyfikacyjnych
     symbole = re.findall(r"[A-Za-z]+", klasa) if klasa and klasa != "Brak" else []
 
     if klasa == "Brak" or not str(klasa).strip():

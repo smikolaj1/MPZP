@@ -93,7 +93,6 @@ async def _sprawdz_warstwe(client: httpx.AsyncClient, bbox: str, nazwa_warstwy: 
         if not any(m in tekst_lower for m in markery_realnej_odpowiedzi):
             return None, None
 
-        # Próba wyciągnięcia nazwy obszaru
         import re as _re
         nazwa_obszaru = None
         match_nazwa = _re.search(r"nazwa[:\s]+([^\n|]+)", tekst_czysty, _re.IGNORECASE)
@@ -102,7 +101,6 @@ async def _sprawdz_warstwe(client: httpx.AsyncClient, bbox: str, nazwa_warstwy: 
 
         return tekst_czysty, nazwa_obszaru
 
-        # Próba wyciągnięcia nazwy obszaru (np. "Puszcza Białowieska")
         nazwa_obszaru = None
         match_nazwa = re.search(r"nazwa[:\s]+([^\n|]+)", tekst, re.IGNORECASE)
         if match_nazwa:
@@ -152,7 +150,6 @@ async def sprawdz_ochrone_przyrody(lat: float, lon: float):
                 "formy_ochrony": []
             }
 
-    # Klasyfikacja statusu
     ma_scisly = any(w["rygor"] == "scisly" for w in wykryte)
     ma_umiarkowany = any(w["rygor"] == "umiarkowany" for w in wykryte)
     ma_punktowy = any(w["rygor"] == "punktowy" for w in wykryte)

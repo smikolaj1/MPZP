@@ -372,7 +372,6 @@ async def sprawdz_mpzp_dokument(lat: float, lon: float):
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
-            # 1. HTML
             params_html = params_bazowe.copy()
             params_html["INFO_FORMAT"] = "text/html"
 
@@ -407,7 +406,6 @@ async def sprawdz_mpzp_dokument(lat: float, lon: float):
                     "pewnosc": "wysoka" if ma_dane_strefy else "srednia",
                 }
 
-            # 2. GML
             params_gml = params_bazowe.copy()
             params_gml["INFO_FORMAT"] = "application/vnd.ogc.gml"
 
